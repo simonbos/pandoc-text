@@ -115,7 +115,7 @@ function Plain(s) return Str(s) end
 
 function Para(s) return Str(s:gsub('\n', Space())) end
 
-function Header(lev, s, attr) return string.rep('#', lev) .. Space() .. Str(s) end
+function Header(lev, s, attr) return Str(s) end
 
 function BlockQuote(s) return DoubleQuoted(s) end
 
