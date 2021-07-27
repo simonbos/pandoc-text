@@ -12,12 +12,23 @@ local meta = PANDOC_DOCUMENT.meta
 -- Extra tables to store footnotes, captions, figure references,
 -- equations and code.
 local notes = {}
-local captions = {}
+local image_captions = {}
+local table_captions = {}
 local links = {}
 local equations = {}
 local code = {}
 
--- Required definitions.
+-- Convenience Empty methods
+function EmptyInline() return "" end
+function EmptyBlock() return "" end
+
+-- Hereafter follow the required definitions for a custom writer, see:
+-- https://github.com/jgm/pandoc/blob/master/src/Text/Pandoc/Writers/Custom.hs
+--
+-- Note on argument names:
+-- 's': the value has already been Stringified
+-- 'ls': the list of values have already been Stringified
+
 function Blocksep() return "\n\n" end
 
 function Doc(body, metadata, variables)
@@ -25,135 +36,147 @@ function Doc(body, metadata, variables)
   local function add(s)
     table.insert(buffer, s)
   end
+
+  -- Abstract
   if (metadata.abstract) then
-    add(Header(1, 'Abstract', {}) .. "\n")
-    add(metadata.abstract .. "\n")
+    add(Header(1, "Abstract", {}))
+    add(metadata.abstract)
   end
+  -- Body
   add(body)
+  -- Footnotes
   if #notes > 0 then
-    add('Footnotes:')
-    for _,note in pairs(notes) do
-      add(note)
-    end
+    add(Header(1, "Footnotes", {}))
+    add(DefinitionList(notes))
   end
-  if #captions > 0 then
-    if #notes > 0 then add('\nCaptions:') else add('Captions:') end
-    for _,caption in pairs(captions) do
-      add(caption)
-    end
+  -- Image captions
+  if #image_captions > 0 then
+    add(Header(1, "Image captions", {}))
+    add(DefinitionList(image_captions))
   end
-  return table.concat(buffer,'\n') .. '\n'
+  -- Table captions
+  if #table_captions > 0 then
+    add(Header(1, "Table captions", {}))
+    add(DefinitionList(table_captions))
+  end
+  return table.concat(buffer, Blocksep()) .. LineBreak()
 end
 
-function Str(s) return s end
+-- Required definitions for Blocks
+function Plain(s) return s end
+
+function CaptionedImage(src, tit, s, attr)
+    table.insert(
+        image_captions,
+        "Figure" .. Space() .. (#image_captions + 1) .. ":" .. Space() .. s
+    )
+    return EmptyBlock()
+end
+
+function Para(s) return s:gsub(SoftBreak(), Space()) end
+
+function LineBlock(ls) return table.concat(ls, SoftBreak()) end
+
+function RawBlock(format, str) return EmptyBlock() end
+
+function HorizontalRule() return EmptyBlock() end
+
+function Header(lev, s, attr) return s end
+
+function CodeBlock(str, attr) return EmptyBlock() end
+
+function BlockQuote(s) return DoubleQuoted(s) end
+
+function Table(s, aligns, widths, headers, rows)
+    table.insert(
+        table_captions,
+        "Table" .. Space() .. (#table_captions + 1) .. ":" .. Space() .. s
+    )
+    return EmptyBlock()
+end
+
+function BulletList(ls) return table.concat(ls, SoftBreak()) end
+
+function OrderedList(ls) return table.concat(ls, SoftBreak()) end
+
+function DefinitionList(ls) return table.concat(ls, SoftBreak()) end
+
+function Div(s, attr)
+    if (string.find(attr["class"], "references")) then
+        -- Removing references since they usually contain a lot of abbreviations
+        -- or people names which are hard to and don't need to be spell-check
+        return EmptyBlock()
+    elseif (attr["class"] == "IEEEkeywords") then
+        -- Usefull for LaTeX documents with IEEE style
+        return "Index Terms:" .. Space()  .. s
+    else
+        return s
+    end
+end
+
+-- Required definitions for Inlines
+function Str(str) return str end
 
 function Space() return " " end
 
 function SoftBreak() return "\n" end
 
+function Emph(s) return s end
+
+function Underline(s) return s end
+
+function Strong(s) return s end
+
+function Strikeout(s) return EmptyInline() end
+
+function Superscript(s) return "^" .. s end
+
+function Subscript(s) return "~" .. s end
+
+function SmallCaps(s) return s end
+
+function SingleQuoted(s) return "'" .. s .. "'" end
+
+function DoubleQuoted(s) return "\"" .. s .. "\"" end
+
+function Cite(s, cs) return s end
+
+function Code(str, attr)
+    table.insert(code, str)
+    return "C"  .. #code
+end
+
+function DisplayMath(str) return EmptyInline() end
+
+function InlineMath(str)
+    table.insert(equations, str)
+    return "X"  .. #equations
+end
+
+function RawInline(format, str) return EmptyInline() end
+
 function LineBreak() return "\n" end
 
-function Emph(s) return Str(s) end
-
-function Strong(s) return Str(s) end
-
-function Subscript(s) return "~" .. Str(s) end
-
-function Superscript(s) return "^" .. Str(s) end
-
-function SmallCaps(s) return Str(s) end
-
-function Strikeout(s) return '' end
-
-function Link(s, tgt, tit, attr)
-   if string.match(s, '%[.*%]') then
+function Link(s, src, tit, attr)
+   if string.match(s, "%[.*%]") then
        -- Unresolved links are usually enclosed by square brackets.
-       -- This hack adds a number as content instead of the (almost always) non plaintext.
-       local num = #links + 1
-       table.insert(links, tgt)
-       return "L" .. num
+       -- This hack returns a number instead of the unresolved link content.
+       table.insert(links, src)
+       return "L" .. #links
    else
        return s
    end
 end
 
-function Image(s, src, tit, attr) return '' end
-
-function Code(s, attr)
-    local num = #code + 1
-    table.insert(code, s)
-    return "C"  .. num
-end
-
-function InlineMath(s)
-    local num = #equations + 1
-    table.insert(equations, s)
-    return "X"  .. num
-end
-
-function DisplayMath(s) return '' end
-
-function SingleQuoted(s) return "'" .. Str(s) .. "'" end
-
-function DoubleQuoted(s) return '"' .. Str(s) .. '"' end
+function Image(s, src, tit, attr) return EmptyInline() end
 
 function Note(s)
   local num = #notes + 1
-  table.insert(notes, '[F' .. num .. ']' .. Space() .. Str(s))
-  return Space() .. '[F' .. num .. ']'
+  table.insert(notes, Superscript(num) .. ":" .. Space() .. s)
+  return Superscript(num)
 end
 
-function Span(s, attr) return Str(s) end
-
-function RawInline(format, str) return str end
-
-function Cite(s, cs) return s end
-
-function Plain(s) return Str(s) end
-
-function Para(s) return Str(s:gsub('\n', Space())) end
-
-function Header(lev, s, attr) return Str(s) end
-
-function BlockQuote(s) return DoubleQuoted(s) end
-
-function HorizontalRule() return '' end
-
-function LineBlock(ls) return table.concat(ls, '\n') end
-
-function CodeBlock(s, attr) return '' end
-
-function BulletList(items) return table.concat(items, "\n") .. "\n" end
-
-function OrderedList(items) return table.concat(items, "\n") .. "\n" end
-
-function DefinitionList(items) return table.concat(items, "\n") .. "\n" end
-
-function CaptionedImage(src, tit, caption, attr)
-    local num = #captions + 1
-    table.insert(captions, '[C' .. num .. ']' .. Space() .. caption)
-    return ''
-end
-
-function Table(caption, aligns, widths, headers, rows)
-    local num = #captions + 1
-    table.insert(captions, '[C' .. num .. ']' .. Space() .. caption)
-    return ''
-end
-
-function RawBlock(format, str) return str end
-
-function Div(s, attr)
-    if (string.find(attr['class'], 'references')) then
-        return ''
-    elseif (attr['class'] == 'csl-entry') then
-        return ''
-    elseif (attr['class'] == 'IEEEkeywords') then
-        return "Index Terms:" .. Space()  .. Str(s)
-    else
-        return Str(s)
-    end
-end
+function Span(s, attr) return s end
 
 -- The following code will produce runtime warnings when you haven't defined
 -- all of the functions you need for the custom writer, so it's useful
@@ -161,7 +184,7 @@ end
 local meta = {}
 meta.__index =
   function(_, key)
-    io.stderr:write(string.format("WARNING: Undefined function '%s'\n",key))
+    io.stderr:write(string.format("WARNING: Undefined function \'%s\'\n",key))
     return function() return "" end
   end
 setmetatable(_G, meta)
