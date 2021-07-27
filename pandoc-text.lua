@@ -13,7 +13,7 @@ local meta = PANDOC_DOCUMENT.meta
 -- equations and code.
 local notes = {}
 local captions = {}
-local fig_refs = {}
+local links = {}
 local equations = {}
 local code = {}
 
@@ -66,14 +66,12 @@ function SmallCaps(s) return Str(s) end
 function Strikeout(s) return '' end
 
 function Link(s, tgt, tit, attr)
-   if string.match(s, '%[fig:.*%]') then
-       -- Due to a bug in pandoc, tikzpicture environments inside figure environments are parsed
-       -- incorrectly. Therefore, also the references are wrong. This hack adds a random number
-       -- as reference text instead of [fig:...]
-       -- See: https://github.com/jgm/pandoc/issues/5084
-       local num = #fig_refs + 1
-       table.insert(fig_refs, tgt)
-       return num
+   if string.match(s, '%[.*%]') then
+       -- Unresolved links are usually enclosed by square brackets.
+       -- This hack adds a number as content instead of the (almost always) non plaintext.
+       local num = #links + 1
+       table.insert(links, tgt)
+       return "L" .. num
    else
        return s
    end
